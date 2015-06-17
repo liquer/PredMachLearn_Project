@@ -1,0 +1,124 @@
+---
+title: "Practical Machine Learning Project"
+author: "Yining Qi"
+date: "Tuesday, June 16, 2015"
+output: html_document
+---
+
+## Synopsis
+
+In this report, we built a model to predict the manner in which the enthusiasts did the exercises. In the process of producing the algorithm we tried two methods of random forests and boosting, and then combined the two predictors together to look for whether there would be a better predictor. Eventually we applied the choosed algorithm to the testing set and got 20 predictions. We validated that the predictions were correct.
+
+## Reading and Cleaning Data
+
+We download the data from the [Weight Lifting Exercises Dataset](http://http://groupware.les.inf.puc-rio.br/har/). The training set is available on [training set link](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv), and the testing set is available on [testing set link](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). Thanks to the contributers. 
+
+We read in the data and have a glimpse of the training and testing sets.
+```{r chunk1,echo=FALSE,results='hide'}
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+Sys.setlocale(locale="English")
+```
+```{r chunk2,echo=TRUE,cache=TRUE}
+rawdata <- read.csv("pml-training.csv")
+rawtesting <- read.csv("pml-testing.csv")
+dim(rawdata)
+dim(rawtesting)
+str(rawdata)
+```
+We find that there are some phenomena in the raw data set that may influence our machine learning process: first, columns of class "factor" may have none sense with the model; second, there are a lot of missing values in the data frame.
+```{r chunk3,echo=TRUE,cache=TRUE,eval=FALSE}
+l <- vector(mode = "logical", length = 160)
+for(i in 1:159){
+  if(class(rawdata[[i]]) == "factor"){
+    l[i] <- TRUE
+  }
+}
+rawdata <- rawdata[!l]
+rawdata <- subset(rawdata, , select = -X)
+rawdata <- subset(rawdata, , select = -raw_timestamp_part_1)
+rawdata <- subset(rawdata, , select = -raw_timestamp_part_2)
+testing <- rawtesting[!l]
+testing <- subset(testing, , select = -X)
+testing <- subset(testing, , select = -raw_timestamp_part_1)
+testing <- subset(testing, , select = -raw_timestamp_part_2)
+for(i in 1:120){
+  m <- mean(rawdata[[i]], na.rm = TRUE)
+  if(any(is.na(rawdata[[i]]))){
+    for(j in 1:19622){
+      if(is.na(rawdata[[i]][j])){
+        rawdata[[i]][j] <- m
+      }
+    }
+  }
+  if(any(is.na(testing[[i]]))){
+    for(j in 1:20){
+      if(is.na(testing[[i]][j])){
+        testing[[i]][j] <- m
+      }
+    }
+  }
+}
+```
+Remember, we should do the same to the testing set, to ensure that we can apply the same model to the testing set.
+
+## Data Slicing
+
+We spilt the raw data, into training set and validation set. The training set holds 60% of the original set and validation set for another 40%. We set the seed to 32323 to make sure that the result is reproducible.
+```{r chunk4,echo=TRUE,cache=TRUE}
+library(caret)
+set.seed(32323)
+inTrain <- createDataPartition(y = rawdata$classe, p = 0.6, list = FALSE)
+validation <- rawdata[-inTrain, ]
+training <- rawdata[inTrain, ]
+```
+
+## Building Model
+
+We use two methods to build the prediction model: random forests and boosting. We use 10-folds cross validation to get better estimate.
+```{r chunk5,echo=TRUE,cache=TRUE,eval=FALSE}
+fit1 <- train(classe ~ ., data = training, method = "rf", 
+              trControl = trainControl(method = "cv", number = 10))
+fit2 <- train(classe ~ ., data = training, method = "gbm", verbose = FALSE, 
+              trControl = trainControl(method = "cv", number = 10))
+```
+
+## Selecting Model: Validation and Combining Predictors
+
+We apply the models to the validation set and get their confusion matrix.
+```{r chunk6,echo=TRUE,cache=TRUE,eval=FALSE}
+predv1 <- predict(fit1, newdata = validation)
+confuMatrix1 <- confusionMatrix(predv, validation$classe)
+predv2 <- predict(fit2, newdata = validation)
+confuMatrix2 <- confusionMatrix(predv2, validation$classe)
+```
+
+### Confusion Matrix of Random Forests Method
+```{r chuk7,echo=TRUE,cache=TRUE}
+confuMatrix1
+```
+From the confusion matrix we know that the expected accuracy of random forests method is 0.9975. And the value of kappa is 0.9968.
+
+### Confusion Matrix of Boosting Method
+```{r chuk8,echo=TRUE,cache=TRUE}
+confuMatrix2
+```
+From the confusion matrix we know that the expected accuracy of random forests method is 0.9845. And the value of kappa is 0.9803.
+
+### Combining Predictors: No Better Than Random Forests
+To find out a possible better model, we combine the two method above together. We find that the new combining predictor is no better than the method of random forests. Finally, we choose the method of random forests.
+```{r chunk9,echo=TRUE,cache=TRUE}
+predDF <- data.frame(predv1, predv2, classe = validation$classe)
+combfit <- train(classe ~ ., data = predDF)
+combPred <- predict(combfit, predDF)
+combconfuMatrix <- confusionMatrix(combPred, predDF$classe)
+combconfuMatrix
+```
+
+## Applying to Testing Set
+We apply the choosed model to the testing set and get a vector of answers. After validation with the Coursera Assignment System, we are delighted to see that they are all correct.
+```{r chunk10,echo=TRUE,cache=TRUE}
+answers <- predict(fit1, newdata = testing)
+answers
+```
